@@ -85,6 +85,11 @@ video_input vid;
 /* y4m output */
 FILE *y4mout;
 
+/* 4CIF */
+unsigned char * subimagedata[4][3];
+int CIF4;
+int subimage;
+
 /*START*/
 
 /*BFUNC
@@ -604,6 +609,87 @@ void InitFS(fs)
 }
 
 /*BFUNC
+ 
+CreateSubimages() subsamples a frame component into four subimages.
+
+All the Y, Cb, Cr channel samples should be divided over the CIF images equally such that
+
+       Y           Cb       Cr
+ _____________   ______   ______
+|0303030303030| |030303| |030303|
+|1212121212121| |121212| |121212|
+|0303030303030| |030303| |030303|
+|1212121212121|  ‾‾‾‾‾‾   ‾‾‾‾‾‾
+|0303030303030|
+|1212121212121|
+ ‾‾‾‾‾‾‾‾‾‾‾‾‾
+become four h261 encoded CIF images in the stream
+ ______ ______ ______ ______
+|000000|111111|222222|333333|
+|000000|111111|222222|333333|
+|000000|111111|222222|333333|
+ ‾‾‾‾‾‾ ‾‾‾‾‾‾ ‾‾‾‾‾‾ ‾‾‾‾‾‾
+that are, presumably, again reconstructed by a Annex D compatible decoder to
+ _____________
+|0303030303030|
+|1212121212121|
+|0303030303030|
+|1212121212121|
+|0303030303030|
+|1212121212121|
+ ‾‾‾‾‾‾‾‾‾‾‾‾‾
+
+EFUNC*/
+
+void CreateSubimages(int component, unsigned char *framedata, unsigned int subsize, unsigned int fullwidth)
+{
+	BEGIN("CreateSubimages");
+	
+	unsigned int i,j,k;
+	if(!subimagedata[0][component])
+	{
+		subimagedata[0][component] = (unsigned char *)calloc(subsize, sizeof(unsigned char));
+		subimagedata[1][component] = (unsigned char *)calloc(subsize, sizeof(unsigned char));
+		subimagedata[2][component] = (unsigned char *)calloc(subsize, sizeof(unsigned char));
+		subimagedata[3][component] = (unsigned char *)calloc(subsize, sizeof(unsigned char));
+	}
+	
+	for(i=0, j=0, k=fullwidth; i<subsize; j+=fullwidth, k+=2*fullwidth )
+	{
+		for( ; j<k; j+=2, ++i)
+		{
+			subimagedata[0][component][i] = framedata[j];
+			subimagedata[3][component][i] = framedata[j+1];
+			subimagedata[1][component][i] = framedata[j+fullwidth];
+			subimagedata[2][component][i] = framedata[j+fullwidth+1];
+		}
+	}
+}
+
+/*BFUNC
+ 
+FreeSubimages() frees allocated subimage buffers.
+
+EFUNC*/
+
+void FreeSubimages()
+{
+	BEGIN("FreeSubimages");
+	int component;
+	
+	if(subimagedata[0][0])
+	{
+		for(component = 2; component>=0; --component)
+		{
+			free( subimagedata[0][component] );
+			free( subimagedata[1][component] );
+			free( subimagedata[2][component] );
+			free( subimagedata[3][component] );
+		}
+	}		
+}
+
+/*BFUNC
 
 ReadIob() loads the memory images from the filenames designated in the
 CFrame structure.
@@ -629,18 +715,36 @@ void ReadIob()
 	else
 	{
 		/*Read current frame's Y, Cb, Cr components from single y4m file*/
-		if( !video_input_fetch_frame(&vid, frame, tag) )
-			exit(ERROR_BOUNDS);
-
+		if( !CIF4 )
+		{
+			if( !video_input_fetch_frame(&vid, frame, tag) )
+				exit(ERROR_BOUNDS);
+			CIF4 = (frame[0].width == 704 && frame[0].height == 576);
+			if(CIF4)
+				subimage = 0;
+		}
+		
 		for(i=0;i<CFrame->NumberComponents;i++)
 		{
 			if (!CFrame->Iob[i]->mem)
 				CFrame->Iob[i]->mem = MakeStructure(MEM);
-
-			CFrame->Iob[i]->mem->width = frame[i].width;
-			CFrame->Iob[i]->mem->height = frame[i].height;
-			CFrame->Iob[i]->mem->len = frame[i].width * frame[i].height;
-			CFrame->Iob[i]->mem->data = frame[i].data;
+			
+			if(CIF4)
+			{
+				CFrame->Iob[i]->mem->width  = frame[i].width  >> 1;
+				CFrame->Iob[i]->mem->height = frame[i].height >> 1;
+				CFrame->Iob[i]->mem->len = CFrame->Iob[i]->mem->width * CFrame->Iob[i]->mem->height;
+				if( subimage == 0)
+					CreateSubimages(i, frame[i].data, CFrame->Iob[i]->mem->len, frame[i].width);
+				CFrame->Iob[i]->mem->data = subimagedata[subimage][i];
+			}
+			else
+			{
+				CFrame->Iob[i]->mem->width = frame[i].width;
+				CFrame->Iob[i]->mem->height = frame[i].height;
+				CFrame->Iob[i]->mem->len = frame[i].width * frame[i].height;
+				CFrame->Iob[i]->mem->data = frame[i].data;
+			}
 		}
 	}
 }

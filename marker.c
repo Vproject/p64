@@ -92,6 +92,9 @@ extern int NumberBitsCoded;
 int MacroAttributeBits=0;
 int MotionVectorBits=0;
 
+/* 4CIF */
+int CIF4;
+
 /*START*/
 /*BFUNC
 
@@ -123,7 +126,7 @@ void WritePictureHeader()
   else
     mputb(0);  /* No Spare */
 #else
-  mputv(6,PType);
+  mputv(6,PType|((~CIF4)<<1) );
   if (PSpareEnable)
     {
       mputb(1);

@@ -251,6 +251,11 @@ video_input vid;
 #define Y4M_NTSCHEADER "YUV4MPEG2 W352 H240 C420jpeg Ip"
 FILE *y4mout = NULL;
 
+/* 4CIF */
+int CIF4;
+int subimage;
+int CIF1Rate;
+
 /*START*/
 /*BFUNC
 
@@ -564,6 +569,7 @@ void p64EncodeSequence()
 			if( !video_input_fetch_frame(&vid, frame, tag) )
 				exit(ERROR_BOUNDS);
 	}
+	CIF4 = 0;
   if (Loud > MUTE)
     {
       PrintImage();
@@ -603,6 +609,7 @@ void p64EncodeSequence()
   WritePictureHeader();
   video_input_close(&vid);
   swclose();
+  FreeSubimages();
 /*
   SaveMem(CFS->fs[0]->mem,"XX");
   SaveMem(OFS->fs[0]->mem,"YY");
@@ -631,10 +638,19 @@ void p64EncodeFrame()
 		VerifyFiles();
 	}
   ReadIob();
+	if(CIF4)
+	{
+		TemporalReference = subimage++;
+		/*CIF1Rate = Rate;
+		Rate /= 4;*/
+	}
+	else
+		TemporalReference = CurrentFrame % 32;
+
   InstallFS(0,CFS);
   if (CurrentFrame!=StartFrame)
     GlobalMC();
-  TemporalReference = CurrentFrame % 32;
+
   WritePictureHeader();
 
   for(x=0;x<10;x++) /* Initialize Statistics */
@@ -679,7 +695,15 @@ void p64EncodeFrame()
   else if (CurrentFrame==StartFrame)
     FirstFrameBits = TotalBits;
   CurrentGOB=0;TransmittedFrames++;
-  CurrentFrame+=FrameSkip;    /* Change GOB & Frame at same time */
+
+	if(!CIF4) /* keep CurrentFrame the same while encoding subimages */
+		CurrentFrame+=FrameSkip;    /* Change GOB & Frame at same time */
+	if(CIF4 && subimage == 4)
+	{
+		CIF4 = 0;
+		CurrentFrame+=FrameSkip;
+		/*Rate = CIF1Rate;*/
+	}
 }
 
 
