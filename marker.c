@@ -94,6 +94,7 @@ int MotionVectorBits=0;
 
 /* 4CIF */
 int CIF4;
+int CurrentFrame;
 
 /*START*/
 /*BFUNC
@@ -168,6 +169,10 @@ void ReadPictureHeader()
     PSpareEnable = 0;
 #else
   PType = mgetv(6);
+  if(PType&0x10 || TemporalReference >= 4 || CurrentFrame < 4)
+    CIF4 = 0;
+  else
+    CIF4 = 1;
   for(PSpareEnable = 0;mgetb();)
     {
       PSpareEnable=1;

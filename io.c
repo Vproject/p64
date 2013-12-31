@@ -86,9 +86,10 @@ video_input vid;
 FILE *y4mout;
 
 /* 4CIF */
-unsigned char * subimagedata[4][3];
+unsigned char *subimagedata[4][3] = {{NULL, NULL, NULL}, {NULL, NULL, NULL}, {NULL, NULL, NULL}, {NULL, NULL, NULL}};
 int CIF4;
 int subimage;
+unsigned char *outputframedata = NULL;
 
 /*START*/
 
@@ -686,7 +687,10 @@ void FreeSubimages()
 			free( subimagedata[2][component] );
 			free( subimagedata[3][component] );
 		}
-	}		
+	}
+	
+	if(outputframedata)
+		free(outputframedata);
 }
 
 /*BFUNC
@@ -779,6 +783,32 @@ void InstallFS(index,fs)
   Iob = fs->fs[index];
 }
 
+/*BFUNC
+ 
+MergeSubimages() merges the frame components of four subimages to form
+a single larger frame component.
+
+EFUNC*/
+
+void MergeSubimages(int component, unsigned char *framedata, unsigned int subsize, unsigned int fullwidth)
+{
+	BEGIN("MergeSubimages");
+	
+	unsigned int i,j,k;
+	if(!framedata)
+		framedata = (unsigned char *)calloc(704*576, sizeof(unsigned char));
+	
+	for(i=0, j=0, k=fullwidth; i<subsize; j+=fullwidth, k+=2*fullwidth )
+	{
+		for( ; j<k; j+=2, ++i)
+		{
+			framedata[j] = subimagedata[0][component][i];
+			framedata[j+1] = subimagedata[3][component][i];
+			framedata[j+fullwidth] = subimagedata[1][component][i];
+			framedata[j+fullwidth+1] = subimagedata[2][component][i];
+		}
+	}
+}
 
 /*BFUNC
 
@@ -802,13 +832,44 @@ void WriteIob()
 	else
 	{
 		MEM *mem;
+		unsigned int len;
 		
-		fwrite("FRAME\n",sizeof(unsigned char),sizeof("FRAME\n")-1,y4mout);
+		if(CIF4 && subimage == 0)
+		{
+			fwrite("FRAME W704 H576\n",sizeof(unsigned char),sizeof("FRAME W704 H576\n")-1,y4mout);
+		}
+		else
+		{
+			fwrite("FRAME\n",sizeof(unsigned char),sizeof("FRAME\n")-1,y4mout);
+		}
 
 		for(i=0;i<CFrame->NumberComponents;i++)
 		{
 			mem = CFrame->Iob[i]->mem;
-			fwrite(mem->data,sizeof(unsigned char),mem->width*mem->height,y4mout);
+			len = mem->width * mem->height;
+			
+			if(CIF4)
+			{
+				
+				if(!subimagedata[0][i])
+				{
+					subimagedata[0][i] = (unsigned char *)calloc(len, sizeof(unsigned char));
+					subimagedata[1][i] = (unsigned char *)calloc(len, sizeof(unsigned char));
+					subimagedata[2][i] = (unsigned char *)calloc(len, sizeof(unsigned char));
+					subimagedata[3][i] = (unsigned char *)calloc(len, sizeof(unsigned char));
+				}
+
+				memcpy(subimagedata[subimage][i], mem->data, len);
+				if( subimage == 3)
+				{
+					MergeSubimages(i, outputframedata, len, mem->width << 1 );
+					fwrite(outputframedata, sizeof(unsigned char), len<<2, y4mout);
+				}
+			}
+			else
+			{
+				fwrite(mem->data, sizeof(unsigned char), len, y4mout);
+			}
 		}
 	}
 }

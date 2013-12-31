@@ -252,9 +252,9 @@ video_input vid;
 FILE *y4mout = NULL;
 
 /* 4CIF */
-int CIF4;
-int subimage;
-int CIF1Rate;
+int CIF4 = 0;
+int subimage = 0;
+int CIF1Rate = 0;
 
 /*START*/
 /*BFUNC
@@ -1147,6 +1147,7 @@ void p64DecodeSequence()
   srclose();
 	if(y4mio)
 		fclose(y4mout);
+	FreeSubimages();
 }
 
 /*BFUNC
