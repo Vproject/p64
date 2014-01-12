@@ -246,9 +246,6 @@ char tag[5];
 video_input vid;
 
 /* y4m output */
-#define Y4M__CIFHEADER "YUV4MPEG2 W352 H288 C420jpeg Ip"
-#define Y4M_QCIFHEADER "YUV4MPEG2 W176 H144 C420jpeg Ip"
-#define Y4M_NTSCHEADER "YUV4MPEG2 W352 H240 C420jpeg Ip"
 FILE *y4mout = NULL;
 
 /* 4CIF */
@@ -568,6 +565,21 @@ void p64EncodeSequence()
 		for(i=StartFrame; i>0; --i)
 			if( !video_input_fetch_frame(&vid, frame, tag) )
 				exit(ERROR_BOUNDS);
+/*		y4mout = fopen("mergetest.y4m","wb");
+
+		switch(ImageType) {
+			case IT_CIF:
+				fwrite(Y4M__CIFHEADER,sizeof(unsigned char),sizeof(Y4M__CIFHEADER)-1,y4mout);
+				break;
+			case IT_NTSC:
+				fwrite(Y4M_NTSCHEADER,sizeof(unsigned char),sizeof(Y4M_NTSCHEADER)-1,y4mout);
+				break;
+			case IT_QCIF:
+			default:
+				fwrite(Y4M_QCIFHEADER,sizeof(unsigned char),sizeof(Y4M_QCIFHEADER)-1,y4mout);
+		}
+		fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+*/
 	}
 	CIF4 = 0;
   if (Loud > MUTE)
@@ -638,6 +650,7 @@ void p64EncodeFrame()
 		VerifyFiles();
 	}
   ReadIob();
+  //WriteIob();
 	if(CIF4)
 	{
 		TemporalReference = subimage++;
@@ -1063,22 +1076,27 @@ void p64DecodeSequence()
 	ReadHeaderTrailer();
       if ((GRead < 0)||(EndFrame))  /* End Of Frame */
 	{
-	  if (!EndFrame)
-	    ReadPictureHeader();
-	  else
-	    TemporalReference++;
 	  if (Active)
 	    {
 	      CopyIob2FS(CFS);
-	      while(((CurrentFrame+TemporalOffset)%32) !=
-		    TemporalReference)
+		do
 		{
 		  printf("END> Frame: %d\n",CurrentFrame);
 			if(!y4mio)
 				MakeFileNames();
+			if(CIF4)
+				subimage = TemporalReference;
 		  WriteIob();
 		  CurrentFrame++;
 		}
+		while(((CurrentFrame+TemporalOffset-1)%32) !=
+		    TemporalReference && !CIF4);
+
+		if (!EndFrame)
+			ReadPictureHeader();
+		else
+			TemporalReference++;
+
 	      /* Might still be "Filler Frame" sent at the end of file */
 	      if (ParityEnable)
 		{
@@ -1092,6 +1110,11 @@ void p64DecodeSequence()
 	    }
 	  else
 	    {	      /* First Frame */
+		if (!EndFrame)
+			ReadPictureHeader();
+		else
+			TemporalReference++;
+
 	      if (ForceCIF)
 		ImageType=IT_CIF;
 	      else
@@ -1112,6 +1135,7 @@ void p64DecodeSequence()
 		
 				y4mout = fopen(CFrame->ComponentFileName[0],"wb");
 
+/*
 				switch(ImageType) {
 					case IT_CIF:
 						fwrite(Y4M__CIFHEADER,sizeof(unsigned char),sizeof(Y4M__CIFHEADER)-1,y4mout);
@@ -1124,6 +1148,7 @@ void p64DecodeSequence()
 						fwrite(Y4M_QCIFHEADER,sizeof(unsigned char),sizeof(Y4M_QCIFHEADER)-1,y4mout);
 				}
 				fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+*/
 			}
 			
 	      if (Loud > MUTE)

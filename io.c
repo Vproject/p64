@@ -83,13 +83,22 @@ char tag[5];
 video_input vid;
 
 /* y4m output */
+#define Y4M__CIFHEADER "YUV4MPEG2 W352 H288 C420jpeg Ip"
+#define Y4M_QCIFHEADER "YUV4MPEG2 W176 H144 C420jpeg Ip"
+#define Y4M_NTSCHEADER "YUV4MPEG2 W352 H240 C420jpeg Ip"
+#define Y4M_4CIFHEADER "YUV4MPEG2 W704 H576 C420jpeg Ip"
 FILE *y4mout;
 
 /* 4CIF */
 unsigned char *subimagedata[4][3] = {{NULL, NULL, NULL}, {NULL, NULL, NULL}, {NULL, NULL, NULL}, {NULL, NULL, NULL}};
 int CIF4;
 int subimage;
+int UnreliableHiResBit;
 unsigned char *outputframedata = NULL;
+
+int CurrentFrame;
+int FrameRate;
+int FrameRateDiv;
 
 /*START*/
 
@@ -790,13 +799,16 @@ a single larger frame component.
 
 EFUNC*/
 
-void MergeSubimages(int component, unsigned char *framedata, unsigned int subsize, unsigned int fullwidth)
+void MergeSubimages(int component, unsigned char **framedataptr, unsigned int subsize, unsigned int fullwidth)
 {
 	BEGIN("MergeSubimages");
 	
 	unsigned int i,j,k;
-	if(!framedata)
-		framedata = (unsigned char *)calloc(704*576, sizeof(unsigned char));
+	unsigned char *framedata;
+	if(!*framedataptr)
+		*framedataptr = (unsigned char *)calloc(704*576, sizeof(unsigned char));
+
+	framedata = *framedataptr;
 	
 	for(i=0, j=0, k=fullwidth; i<subsize; j+=fullwidth, k+=2*fullwidth )
 	{
@@ -833,16 +845,72 @@ void WriteIob()
 	{
 		MEM *mem;
 		unsigned int len;
-		
-		if(CIF4 && subimage == 0)
+
+		if( (CurrentFrame == 0 && !CIF4) || (CurrentFrame == 4 && CIF4) )
 		{
-			fwrite("FRAME W704 H576\n",sizeof(unsigned char),sizeof("FRAME W704 H576\n")-1,y4mout);
+			switch(ImageType) {
+				case IT_CIF:
+					if(CIF4 && subimage < 4 ) /* TODO: new IT_4CIF ImageType? */
+					{
+						int component;
+						fwrite(Y4M_4CIFHEADER,sizeof(unsigned char),sizeof(Y4M_4CIFHEADER)-1,y4mout);
+						fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+						fwrite("FRAME\n",sizeof(unsigned char),sizeof("FRAME\n")-1,y4mout);
+
+						for(component=0; component < CFrame->NumberComponents; component++)
+						{
+							mem = CFrame->Iob[component]->mem;
+							len = mem->width * mem->height;
+						
+							MergeSubimages(i, &outputframedata, len, mem->width * 2 );
+							fwrite(outputframedata, sizeof(unsigned char), len * 4, y4mout);
+						}
+					}
+					else
+					{
+						fwrite(Y4M__CIFHEADER,sizeof(unsigned char),sizeof(Y4M__CIFHEADER)-1,y4mout);
+						fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+						if(CIF4)
+						{
+							int component;
+							UnreliableHiResBit = 1;
+							for(i=0; i<4; i++)
+							{
+								fwrite("FRAME\n",sizeof(unsigned char),sizeof("FRAME\n")-1,y4mout);
+								for(component=0; component < CFrame->NumberComponents; component++)
+								{
+									mem = CFrame->Iob[component]->mem;
+									len = mem->width * mem->height;
+
+									fwrite(subimagedata[i][component], sizeof(unsigned char), len, y4mout);
+								}
+							}
+							CIF4 = 0;
+						}
+					}
+					break;
+				case IT_NTSC:
+					fwrite(Y4M_NTSCHEADER,sizeof(unsigned char),sizeof(Y4M_NTSCHEADER)-1,y4mout);
+					fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+					break;
+				case IT_QCIF:
+				default:
+					fwrite(Y4M_QCIFHEADER,sizeof(unsigned char),sizeof(Y4M_QCIFHEADER)-1,y4mout);
+					fprintf(y4mout," F%i:%i\n", FrameRate, FrameRateDiv);
+			}
 		}
-		else
+		
+		if(!CIF4 || (CIF4 && subimage == 0 && CurrentFrame >= 4) )
 		{
 			fwrite("FRAME\n",sizeof(unsigned char),sizeof("FRAME\n")-1,y4mout);
 		}
-
+/* y4m players don't seem to support changing width/height
+		else
+		{
+			if(subimage == 0)
+				fwrite("FRAME W704 H576\n",sizeof(unsigned char),sizeof("FRAME W704 H576\n")-1,y4mout);
+		}
+*/
 		for(i=0;i<CFrame->NumberComponents;i++)
 		{
 			mem = CFrame->Iob[i]->mem;
@@ -860,9 +928,9 @@ void WriteIob()
 				}
 
 				memcpy(subimagedata[subimage][i], mem->data, len);
-				if( subimage == 3)
+				if( subimage == 3 && CurrentFrame >= 4)
 				{
-					MergeSubimages(i, outputframedata, len, mem->width << 1 );
+					MergeSubimages(i, &outputframedata, len, mem->width << 1 );
 					fwrite(outputframedata, sizeof(unsigned char), len<<2, y4mout);
 				}
 			}

@@ -95,6 +95,7 @@ int MotionVectorBits=0;
 /* 4CIF */
 int CIF4;
 int CurrentFrame;
+int UnreliableHiResBit = 0;
 
 /*START*/
 /*BFUNC
@@ -127,7 +128,7 @@ void WritePictureHeader()
   else
     mputb(0);  /* No Spare */
 #else
-  mputv(6,PType|((~CIF4)<<1) );
+  mputv(6,(PType&0x3D)|(CIF4?0x00:0x02) );
   if (PSpareEnable)
     {
       mputb(1);
@@ -169,10 +170,20 @@ void ReadPictureHeader()
     PSpareEnable = 0;
 #else
   PType = mgetv(6);
-  if(PType&0x10 || TemporalReference >= 4 || CurrentFrame < 4)
-    CIF4 = 0;
-  else
-    CIF4 = 1;
+	if(PType&0x02) /* HI_RES mode, 1 = off, 0 = on */
+	{
+		CIF4 = 0;
+	}
+	else
+	{
+		//if(TemporalReference >= 4 || !(PType&0x04)) /* HI_RES bit signals on, but TemporalReference is not a valid subimage or size format is QCIF */
+		if( !(PType&0x04) || (CurrentFrame == 0 && TemporalReference != 0)) /* HI_RES bit signals on, but size format is QCIF; CIF makes more sense than 4QCIF */
+		{																	/* 4CIF images start with subimage (TemporalReference) 0 */
+			UnreliableHiResBit = 1;
+		}
+		CIF4 = 1 && !UnreliableHiResBit;
+	}
+  printf("CIF4 = %i, (PType&0x02 = %i, TemporalReference = %i, CurrentFrame = %i)\n", CIF4, PType&0x02, TemporalReference, CurrentFrame);
   for(PSpareEnable = 0;mgetb();)
     {
       PSpareEnable=1;
